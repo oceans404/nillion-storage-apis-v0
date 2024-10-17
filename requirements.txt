@@ -1,0 +1,7 @@
+Flask[async]
+python-dotenv
+psycopg2-binary
+
+py-nillion-client
+nillion-python-helpers
+cosmpy
