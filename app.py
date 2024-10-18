@@ -24,7 +24,7 @@ nillion_testnet_default_config = {
 # This user is granted retrieve permission to the secret confessions stored
 PUBLIC_USER_SEED = "public"
 USER_ID_PUBLIC_SEED = "32HBC8A6ukxwL7B7K2fYcBHqiG5xy4sdLbME7MXmYB7pedooQwu2rgYUrT8nAVzrsEYuviRdcN5Hpb3ZJYcd25kL"
-secret_name = "confession"
+default_secret_name = "confession"
 
 # Create 1 payments config, client and wallet to use for any payments made to the network by the api
 payments_config = create_payments_config(nillion_testnet_default_config["chain_id"], nillion_testnet_default_config["grpc_endpoint"])
@@ -33,7 +33,6 @@ payments_client = LedgerClient(payments_config)
 # Check that private key is set in the .env file
 try:
     private_key = PrivateKey(bytes.fromhex(os.getenv("NILLION_PRIVATE_KEY")))
-    print("Using Nillion Testnet private key...")
 except Exception as e:
     raise RuntimeError(f"Make sure to set a funded Nillion Testnet private key in the .env file.")
 
@@ -95,8 +94,16 @@ def create_user():
 
     with connection:
         with connection.cursor() as cursor:
-            cursor.execute("INSERT INTO users (nillion_user_id) VALUES (%s) RETURNING id;", (nillion_user_id,))
-            user_id = cursor.fetchone()[0]
+            # Check if the nillion_user_id already exists
+            cursor.execute("SELECT id FROM users WHERE nillion_user_id = %s;", (nillion_user_id,))
+            user = cursor.fetchone()
+
+            if user is None:
+                # Insert the new user only if it doesn't exist
+                cursor.execute("INSERT INTO users (nillion_user_id) VALUES (%s) RETURNING id;", (nillion_user_id,))
+                user_id = cursor.fetchone()[0]
+            else:
+                user_id = user[0]  # Get the existing user_id
 
     return jsonify({"id": user_id, }), 201
 
@@ -127,14 +134,13 @@ def create_topic():
 @app.post("/api/secret")
 async def create_secret():
     data = request.get_json()
-
     seed =  data["nillion_seed"]
     secret =  data["nillion_secret"]
+    secret_name = data.get("secret_name", default_secret_name)  
     userkey = UserKey.from_seed(seed)
     nodekey = NodeKey.from_seed(str(uuid.uuid4()))
     client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
     nillion_user_id = client.user_id
-    print("USER", seed, nillion_user_id)
 
     new_secret = nillion.NadaValues(
         {
@@ -154,12 +160,10 @@ async def create_secret():
         nillion_testnet_default_config["cluster_id"],
         memo_store_values,
     )
-    print(f"🧾 RECEIPT MEMO: {memo_store_values}")
 
     store_id = await client.store_values(
         nillion_testnet_default_config["cluster_id"], new_secret, permissions, receipt_store
     )
-    print("STORE ID", store_id)
     topics = data.get("topics", [])
 
     with connection:
@@ -259,6 +263,11 @@ async def get_secret_by_store_id(store_id):
     userkey = UserKey.from_seed(seed)
     nodekey = NodeKey.from_seed(str(uuid.uuid4()))
     client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
+    data = request.get_json()
+    if data:
+        secret_name = data["secret_name"]
+    else:
+        secret_name = default_secret_name
 
     memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
     receipt_retrieve = await get_quote_and_pay(
@@ -270,9 +279,12 @@ async def get_secret_by_store_id(store_id):
         memo_retrieve_value
     )
 
-    result = await client.retrieve_value(
-        nillion_testnet_default_config["cluster_id"], store_id, secret_name, receipt_retrieve
-    )
+    try:
+        result = await client.retrieve_value(
+            nillion_testnet_default_config["cluster_id"], store_id, secret_name, receipt_retrieve
+        )
+    except Exception as e:
+        return jsonify({"error": f"Failed to retrieve secret with name: {secret_name}. Error {str(e)}"}), 500 
 
     return jsonify({
         "store_id":store_id,
