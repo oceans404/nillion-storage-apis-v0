@@ -10,6 +10,8 @@ from cosmpy.aerial.wallet import LocalWallet
 from cosmpy.crypto.keypairs import PrivateKey
 import uuid  
 
+load_dotenv()
+
 # use the Nillion Testnet Config: https://docs.nillion.com/network-configuration#testnet
 nillion_testnet_default_config = {
     "cluster_id": 'b13880d3-dde8-4a75-a171-8a1a9d985e6c',
@@ -68,7 +70,6 @@ CREATE_SECRET_TOPICS_TABLE = (
     );"""
 )
 
-load_dotenv()
 url = os.getenv("POSTGRESQL_URL")
 connection = psycopg2.connect(url)
 
@@ -285,6 +286,3 @@ def get_wallet_info():
     return jsonify({
         "nillion_address": str(wallet_address),
     }), 200
-
-if __name__ == "__main__":
-    app.run(debug=True)

@@ -1,6 +1,7 @@
 Flask[async]
 python-dotenv
 psycopg2-binary
+Gunicorn
 
 py-nillion-client
 nillion-python-helpers
