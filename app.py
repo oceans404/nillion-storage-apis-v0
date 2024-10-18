@@ -9,6 +9,8 @@ from cosmpy.aerial.client import LedgerClient
 from cosmpy.aerial.wallet import LocalWallet
 from cosmpy.crypto.keypairs import PrivateKey
 import uuid  
+import redis
+import json
 
 load_dotenv()
 
@@ -91,7 +93,6 @@ def create_user():
     nodekey = NodeKey.from_seed(str(uuid.uuid4()))
     client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
     nillion_user_id = client.user_id
-    print("NEW USER", seed, nillion_user_id)
 
     with connection:
         with connection.cursor() as cursor:
@@ -269,6 +270,32 @@ async def get_secret_by_store_id(store_id):
     else:
         secret_name = default_secret_name
 
+    # Check Redis cache for the secret
+    redis_key = f"secret:{store_id}:{secret_name}"
+    
+    try:
+        redis_client = redis.Redis.from_url(os.getenv("REDIS_URL"))
+
+        # Check if the Redis client is connected
+        if redis_client.ping():
+            print(f"Connected to Redis server successfully. Checking for {redis_key}")
+        else:
+            print("Failed to connect to Redis server.")
+    except redis.exceptions.ResponseError as e:
+        print(f"Authentication error: {str(e)}")
+    except redis.ConnectionError as e:
+        print(f"Failed to connect to Redis server: {str(e)}")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
+    cached_secret = redis_client.get(redis_key)
+    if cached_secret:
+        secret_data = json.loads(cached_secret)
+        return jsonify({
+            "store_id": store_id,
+            "secret": secret_data
+        }), 200
+
     memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
     receipt_retrieve = await get_quote_and_pay(
         client,
@@ -286,10 +313,15 @@ async def get_secret_by_store_id(store_id):
     except Exception as e:
         return jsonify({"error": f"Failed to retrieve secret with name: {secret_name}. Error {str(e)}"}), 500 
 
-    return jsonify({
-        "store_id":store_id,
-        "secret": result[1].value.decode('utf-8')
-    }), 200
+    retrieved_secret = result[1].value.decode('utf-8')
+    
+    payload = {
+        "store_id": store_id,
+        "secret": retrieved_secret
+    }
+    cache_expiry = 3600 * 24 # expire after 1 day
+    redis_client.set(redis_key, json.dumps(retrieved_secret), ex=cache_expiry)
+    return payload, 200
 
 # Endpoint to retrieve the wallet address currently funding these api calls
 @app.get("/api/wallet")
