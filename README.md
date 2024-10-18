@@ -64,6 +64,8 @@ To start the application, run:
 flask run
 ```
 
-This will start the Flask server and allow you to access the API endpoints at http://127.0.0.1:8000/*
+This will start the Flask development server and allow you to access the API endpoints at http://127.0.0.1:5000/*
 
 Optionally use the included Insomnia project file to test the API endpoints.
+
+Use `gunicorn app:app` for a production server, which lets you access endpoints at http://127.0.0.1:8000/*
