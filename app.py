@@ -54,6 +54,7 @@ CREATE_SECRETS_TABLE = (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL,
         store_id TEXT NOT NULL,
+        secret_name TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );"""
@@ -179,8 +180,7 @@ async def create_secret():
             else:
                 user_id = user[0]  # Get the existing user_id
 
-            # Insert the new secret
-            cursor.execute("INSERT INTO secrets (user_id, store_id) VALUES (%s, %s) RETURNING id;", (user_id, store_id))
+            cursor.execute("INSERT INTO secrets (user_id, store_id, secret_name) VALUES (%s, %s, %s) RETURNING id;", (user_id, store_id, secret_name))
             secret_id = cursor.fetchone()[0]
             
             for topic_id in topics:
@@ -227,14 +227,14 @@ def get_secrets():
     with connection:
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT id, user_id, store_id, created_at
+                SELECT id, user_id, store_id, created_at, secret_name
                 FROM secrets 
                 ORDER BY created_at DESC
                 LIMIT %s OFFSET %s;
             """, (page_size, (page - 1) * page_size))
             secrets = cursor.fetchall()
 
-    return jsonify([{"id": secret[0], "user_id": secret[1], "store_id": secret[2], "created_at": secret[3]} for secret in secrets]), 200
+    return jsonify([{"id": secret[0], "user_id": secret[1], "store_id": secret[2], "created_at": secret[3],"secret_name": secret[4]} for secret in secrets]), 200
 
 # retrieve secrets by topic with pagination
 @app.get("/api/secrets/topic/<int:topic_id>")
