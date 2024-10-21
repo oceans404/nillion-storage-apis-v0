@@ -72,26 +72,77 @@ def get_redis_client():
 
 # Pydantic models
 class UserCreate(BaseModel):
-    nillion_seed: str
+    nillion_seed: str = "user"
+
+class TopicCreate(BaseModel):
+    name: str = "my_topic"
+
+class SecretCreate(BaseModel):
+    nillion_seed: str ="user"
+    nillion_secret: str = "my super secret confession"
+    secret_name: Optional[str] = "confession"
+    topics: List[int] = [1]
+
+class SecretItem(BaseModel):
+    id: int
+    user_id: str  
+    store_id: str
+    created_at: str 
+    secret_name: str
 
 class UserResponse(BaseModel):
     id: int
 
-class TopicCreate(BaseModel):
-    name: str
-
 class TopicResponse(BaseModel):
     topic_id: int
-
-class SecretCreate(BaseModel):
-    nillion_seed: str
-    nillion_secret: str
-    secret_name: Optional[str] = "confession"
-    topics: List[int] = []
 
 class SecretResponse(BaseModel):
     secret_id: int
     store_id: str
+
+class SecretItem(BaseModel):
+    id: int
+    user_id: str 
+    store_id: str
+    created_at: str
+    secret_name: str
+
+class SecretsResponse(BaseModel):
+    total_count: int
+    secrets: List[SecretItem]
+
+class TopicSecretsCountResponse(BaseModel):
+    total_secrets_for_topic: int
+
+class SecretCountResponse(BaseModel):
+    total_secrets: int
+
+class UserListItem(BaseModel):
+    id: int
+    nillion_user_id: str
+
+class UserListResponse(BaseModel):
+    users: List[UserListItem]
+
+class TopicItem(BaseModel):
+    id: int
+    name: str
+
+class TopicsResponse(BaseModel):
+    topics: List[TopicItem]
+
+class TotalUsersResponse(BaseModel):
+    total_users: int
+
+class TotalUsersWithSecretsResponse(BaseModel):
+    total_users_with_secrets: int
+
+class SecretRetrieveResponse(BaseModel):
+    store_id: str
+    secret: str  # Adjust the type if the secret structure is more complex
+
+class WalletInfoResponse(BaseModel):
+    nillion_address: str
 
 # API routes
 @app.post("/api/user", response_model=UserResponse)
@@ -114,18 +165,27 @@ async def create_user(user: UserCreate, connection=Depends(get_db_connection)):
     connection.commit()
     return UserResponse(id=user_id)
 
-@app.get("/api/users")
+@app.get("/api/users", response_model=UserListResponse)
 async def get_users(connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
         cursor.execute("SELECT id, nillion_user_id FROM users;")
         users = cursor.fetchall()
-    return [{"id": user[0], "nillion_user_id": user[1]} for user in users]
+    return UserListResponse(users=[UserListItem(id=user[0], nillion_user_id=user[1]) for user in users])
 
 @app.post("/api/topic", response_model=TopicResponse)
 async def create_topic(topic: TopicCreate, connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
         cursor.execute("INSERT INTO topics (name) VALUES (%s) RETURNING id;", (topic.name,))
         topic_id = cursor.fetchone()[0]
+
+        # Create a new table for the topic's secret count
+        cursor.execute(f"""
+            CREATE TABLE IF NOT EXISTS topic_{topic_id}_secret_count (
+                total_records INT NOT NULL DEFAULT 0
+            );
+        """)
+        cursor.execute(f"INSERT INTO topic_{topic_id}_secret_count (total_records) VALUES (0);")
+
     connection.commit()
     return TopicResponse(topic_id=topic_id)
 
@@ -178,35 +238,42 @@ async def create_secret(secret: SecretCreate, connection=Depends(get_db_connecti
         cursor.execute("INSERT INTO secrets (user_id, store_id, secret_name) VALUES (%s, %s, %s) RETURNING id;", (user_id, store_id, secret.secret_name))
         secret_id = cursor.fetchone()[0]
         
+        # Increment total_records in secret_count table
+        cursor.execute("UPDATE secret_count SET total_records = total_records + 1;")
+        
         for topic_id in secret.topics:
             cursor.execute("INSERT INTO secret_topics (secret_id, topic_id) VALUES (%s, %s);", (secret_id, topic_id))
+            cursor.execute(f"UPDATE topic_{topic_id}_secret_count SET total_records = total_records + 1;")
 
     connection.commit()
     return SecretResponse(secret_id=secret_id, store_id=store_id)
 
-@app.get("/api/topics")
+@app.get("/api/topics", response_model=TopicsResponse)
 async def get_topics(connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
         cursor.execute("SELECT id, name FROM topics;")
         topics = cursor.fetchall()
-    return [{"id": topic[0], "name": topic[1]} for topic in topics]
+    return TopicsResponse(topics=[TopicItem(id=topic[0], name=topic[1]) for topic in topics])
 
-@app.get("/api/users/count")
+@app.get("/api/users/count", response_model=TotalUsersResponse)
 async def get_total_users(connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
         cursor.execute("SELECT COUNT(*) FROM users;")
         total_users = cursor.fetchone()[0]
-    return {"total_users": total_users}
+    return TotalUsersResponse(total_users=total_users)
 
-@app.get("/api/users/with_secrets/count")
+@app.get("/api/users/with_secrets/count", response_model=TotalUsersWithSecretsResponse)
 async def get_users_with_secrets_count(connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
         cursor.execute("SELECT COUNT(DISTINCT user_id) FROM secrets;")
         total_users_with_secrets = cursor.fetchone()[0]
-    return {"total_users_with_secrets": total_users_with_secrets}
+    return TotalUsersWithSecretsResponse(total_users_with_secrets=total_users_with_secrets)
 
-@app.get("/api/secrets")
+@app.get("/api/secrets", response_model=SecretsResponse)
 async def get_secrets(page: int = 1, page_size: int = 10, connection=Depends(get_db_connection)):
+    total_count_response = await get_secret_count(connection)
+    total_count = total_count_response.total_secrets 
+
     with connection.cursor() as cursor:
         cursor.execute("""
             SELECT id, user_id, store_id, created_at, secret_name
@@ -215,13 +282,20 @@ async def get_secrets(page: int = 1, page_size: int = 10, connection=Depends(get
             LIMIT %s OFFSET %s;
         """, (page_size, (page - 1) * page_size))
         secrets = cursor.fetchall()
-    return [{"id": secret[0], "user_id": secret[1], "store_id": secret[2], "created_at": secret[3], "secret_name": secret[4]} for secret in secrets]
 
-@app.get("/api/secrets/topic/{topic_id}")
+    return SecretsResponse(
+        total_count=total_count,
+        secrets=[SecretItem(id=secret[0], user_id=str(secret[1]), store_id=secret[2], created_at=secret[3].isoformat(), secret_name=secret[4]) for secret in secrets]
+    )
+
+@app.get("/api/secrets/topic/{topic_id}", response_model=SecretsResponse)
 async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10, connection=Depends(get_db_connection)):
+    total_count_response = await get_secret_count_by_topic(topic_id, connection)
+    total_secrets_for_topic = total_count_response.total_secrets_for_topic
+
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT s.id, s.user_id, s.store_id, s.created_at
+            SELECT s.id, s.user_id, s.store_id, s.created_at, s.secret_name  -- Ensure secret_name is included
             FROM secrets s
             JOIN secret_topics st ON s.id = st.secret_id
             WHERE st.topic_id = %s
@@ -229,9 +303,21 @@ async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10
             LIMIT %s OFFSET %s;
         """, (topic_id, page_size, (page - 1) * page_size))
         secrets = cursor.fetchall()
-    return [{"id": secret[0], "user_id": secret[1], "store_id": secret[2], "created_at": secret[3]} for secret in secrets]
 
-@app.get("/api/secret/retrieve/{store_id}")
+    return SecretsResponse(
+        total_count=total_secrets_for_topic,
+        secrets=[
+            SecretItem(
+                id=secret[0],
+                user_id=str(secret[1]), 
+                store_id=secret[2],
+                created_at=secret[3].isoformat(),
+                secret_name=secret[4]
+            ) for secret in secrets
+        ]
+    )
+
+@app.get("/api/secret/retrieve/{store_id}", response_model=SecretRetrieveResponse)
 async def get_secret_by_store_id(store_id: str, secret_name: str = default_secret_name, redis_client=Depends(get_redis_client)):
     seed = PUBLIC_USER_SEED
     userkey = UserKey.from_seed(seed)
@@ -243,10 +329,7 @@ async def get_secret_by_store_id(store_id: str, secret_name: str = default_secre
     if cached_secret:
         print(f"got from redis: {redis_key}")
         secret_data = json.loads(cached_secret)
-        return {
-            "store_id": store_id,
-            "secret": secret_data
-        }
+        return SecretRetrieveResponse(store_id=store_id, secret=secret_data)
 
     memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
     try:
@@ -273,17 +356,57 @@ async def get_secret_by_store_id(store_id: str, secret_name: str = default_secre
     cache_expiry = 3600 * 24  # expire after 1 day
     redis_client.set(redis_key, json.dumps(retrieved_secret), ex=cache_expiry)
     
-    return {
-        "store_id": store_id,
-        "secret": retrieved_secret
-    }
+    return SecretRetrieveResponse(store_id=store_id, secret=retrieved_secret)
 
-@app.get("/api/wallet")
+@app.get("/api/wallet", response_model=WalletInfoResponse)
 def get_wallet_info():
     wallet_address = payments_wallet.address() 
-    return {
-        "nillion_address": str(wallet_address),
-    }
+    return WalletInfoResponse(nillion_address=str(wallet_address))
+
+@app.get("/api/secret/count", response_model=SecretCountResponse)
+async def get_secret_count(connection=Depends(get_db_connection)):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT total_records FROM secret_count;")
+        result = cursor.fetchone()
+        
+        if result is None:
+            cursor.execute("INSERT INTO secret_count (total_records) VALUES (0);")
+            connection.commit()  
+            total_records = 0
+        else:
+            total_records = result[0]
+    
+    return SecretCountResponse(total_secrets=total_records)
+
+@app.get("/api/secrets/synccount")
+async def sync_secret_count(connection=Depends(get_db_connection)):
+    with connection.cursor() as cursor:
+        # Get the current count of secrets
+        cursor.execute("SELECT COUNT(*) FROM secrets;")
+        current_count = cursor.fetchone()[0]
+
+        # Update the total_records in the secret_count table
+        cursor.execute("UPDATE secret_count SET total_records = %s;", (current_count,))
+        connection.commit()
+
+    return {"total_secrets_synced": current_count}
+
+@app.get("/api/secret/count/topic/{topic_id}", response_model=TopicSecretsCountResponse)
+async def get_secret_count_by_topic(topic_id: int, connection=Depends(get_db_connection)):
+    with connection.cursor() as cursor:
+        # Query the total_records from the topic's secret count table
+        cursor.execute(f"SELECT total_records FROM topic_{topic_id}_secret_count;")
+        result = cursor.fetchone()
+        
+        if result is None:
+            # If no record exists, initialize it
+            cursor.execute(f"INSERT INTO topic_{topic_id}_secret_count (total_records) VALUES (0);")
+            connection.commit()
+            total_records = 0
+        else:
+            total_records = result[0]
+    
+    return TopicSecretsCountResponse(total_secrets_for_topic=total_records)
 
 if __name__ == "__main__":
     import uvicorn
