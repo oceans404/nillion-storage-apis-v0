@@ -56,8 +56,16 @@ def get_db_connection():
         connection.close()
 
 # Redis connection
+# Redis connection
 def get_redis_client():
-    redis_client = redis.Redis.from_url(os.getenv("REDIS_URL"))
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url is None:
+        raise RuntimeError("REDIS_URL is not set in the .env file. Add your Redis URL to the .env file.")
+
+    try:
+        redis_client = redis.Redis.from_url(redis_url)
+    except Exception as e:
+        raise RuntimeError(f"Failed to connect to Redis: {str(e)}")
     try:
         yield redis_client
     finally:
@@ -228,6 +236,7 @@ async def get_secret_by_store_id(store_id: str, secret_name: str = default_secre
     redis_key = f"secret:{store_id}:{secret_name}"
     cached_secret = redis_client.get(redis_key)
     if cached_secret:
+        print(f"got from redis: {redis_key}")
         secret_data = json.loads(cached_secret)
         return {
             "store_id": store_id,
