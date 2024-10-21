@@ -56,7 +56,6 @@ def get_db_connection():
         connection.close()
 
 # Redis connection
-# Redis connection
 def get_redis_client():
     redis_url = os.getenv("REDIS_URL")
     if redis_url is None:
@@ -147,18 +146,24 @@ async def create_secret(secret: SecretCreate, connection=Depends(get_db_connecti
     permissions.add_retrieve_permissions(set([USER_ID_PUBLIC_SEED]))
     memo_store_values = f"petnet operation: store_values; name: {secret.secret_name}; user_id: {nillion_user_id}"
 
-    receipt_store = await get_quote_and_pay(
-        client,
-        nillion.Operation.store_values(new_secret, ttl_days=5),
-        payments_wallet,
-        payments_client,
-        nillion_testnet_default_config["cluster_id"],
-        memo_store_values,
-    )
+    try:
+        receipt_store = await get_quote_and_pay(
+            client,
+            nillion.Operation.store_values(new_secret, ttl_days=5),
+            payments_wallet,
+            payments_client,
+            nillion_testnet_default_config["cluster_id"],
+            memo_store_values,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Quote failed for store values: {str(e)}")
 
-    store_id = await client.store_values(
-        nillion_testnet_default_config["cluster_id"], new_secret, permissions, receipt_store
-    )
+    try:
+        store_id = await client.store_values(
+            nillion_testnet_default_config["cluster_id"], new_secret, permissions, receipt_store
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to store values in the client: {str(e)}")
 
     with connection.cursor() as cursor:
         cursor.execute("SELECT id FROM users WHERE nillion_user_id = %s;", (nillion_user_id,))
@@ -244,14 +249,17 @@ async def get_secret_by_store_id(store_id: str, secret_name: str = default_secre
         }
 
     memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
-    receipt_retrieve = await get_quote_and_pay(
-        client,
-        nillion.Operation.retrieve_value(),
-        payments_wallet,
-        payments_client,
-        nillion_testnet_default_config["cluster_id"],
-        memo_retrieve_value
-    )
+    try:
+        receipt_retrieve = await get_quote_and_pay(
+            client,
+            nillion.Operation.retrieve_value(),
+            payments_wallet,
+            payments_client,
+            nillion_testnet_default_config["cluster_id"],
+            memo_retrieve_value
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Quote failed for retrieve value: {str(e)}")
 
     try:
         result = await client.retrieve_value(
