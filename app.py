@@ -2,6 +2,7 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import py_nillion_client as nillion
 from py_nillion_client import UserKey, NodeKey
@@ -45,6 +46,15 @@ payments_wallet = LocalWallet(
 )
 
 app = FastAPI()
+
+# cors
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Database connection
 def get_db_connection():

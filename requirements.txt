@@ -9,6 +9,7 @@ nillion-python-helpers
 cosmpy
 
 fastapi==0.100.0
+fastapi-cors
 uvicorn==0.23.0
 psycopg2-binary
 python-dotenv==1.0.0
