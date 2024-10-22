@@ -110,6 +110,7 @@ class SecretItem(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
+    nillion_user_id: str
 
 class TopicResponse(BaseModel):
     topic_id: int
@@ -189,7 +190,7 @@ async def create_user(user: UserCreate, connection=Depends(get_db_connection)):
             user_id = existing_user[0]
 
     connection.commit()
-    return UserResponse(id=user_id)
+    return UserResponse(id=user_id, nillion_user_id=nillion_user_id)
 
 @app.get("/api/users", response_model=UserListResponse)
 async def get_users(connection=Depends(get_db_connection)):
