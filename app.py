@@ -14,6 +14,7 @@ import uuid
 import redis
 import json
 from typing import List, Optional
+from psycopg2 import pool
 
 load_dotenv()
 
@@ -47,7 +48,6 @@ payments_wallet = LocalWallet(
 
 app = FastAPI()
 
-# cors
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:3001"],
@@ -56,29 +56,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Create a connection pool
+db_pool = pool.SimpleConnectionPool(1, 20, dsn=os.getenv("POSTGRESQL_URL"))
+
 # Database connection
 def get_db_connection():
-    url = os.getenv("POSTGRESQL_URL")
-    connection = psycopg2.connect(url)
+    connection = db_pool.getconn()
     try:
         yield connection
     finally:
-        connection.close()
+        db_pool.putconn(connection)  # Return the connection to the pool
 
-# Redis connection
+# Create a Redis connection pool
+redis_pool = redis.ConnectionPool.from_url(os.getenv("REDIS_URL"))
+
+# Redis connection pool
 def get_redis_client():
-    redis_url = os.getenv("REDIS_URL")
-    if redis_url is None:
-        raise RuntimeError("REDIS_URL is not set in the .env file. Add your Redis URL to the .env file.")
-
-    try:
-        redis_client = redis.Redis.from_url(redis_url)
-    except Exception as e:
-        raise RuntimeError(f"Failed to connect to Redis: {str(e)}")
+    redis_client = redis.Redis(connection_pool=redis_pool)
     try:
         yield redis_client
     finally:
-        redis_client.close()
+        pass
 
 # Pydantic models
 class UserCreate(BaseModel):
@@ -153,6 +151,14 @@ class SecretRetrieveResponse(BaseModel):
 
 class WalletInfoResponse(BaseModel):
     nillion_address: str
+
+# Base response model
+class BaseSecretsResponse(BaseModel):
+    total_count: int
+    secrets: List[SecretItem]
+
+class SecretsResponseWithTopic(BaseSecretsResponse):
+    topic_name: str  
 
 # API routes
 @app.post("/api/user", response_model=UserResponse)
@@ -298,23 +304,25 @@ async def get_secrets(page: int = 1, page_size: int = 10, connection=Depends(get
         secrets=[SecretItem(id=secret[0], user_id=str(secret[1]), store_id=secret[2], created_at=secret[3].isoformat(), secret_name=secret[4]) for secret in secrets]
     )
 
-@app.get("/api/secrets/topic/{topic_id}", response_model=SecretsResponse)
+@app.get("/api/secrets/topic/{topic_id}", response_model=SecretsResponseWithTopic)
 async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10, connection=Depends(get_db_connection)):
     total_count_response = await get_secret_count_by_topic(topic_id, connection)
     total_secrets_for_topic = total_count_response.total_secrets_for_topic
 
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT s.id, s.user_id, s.store_id, s.created_at, s.secret_name  -- Ensure secret_name is included
+            SELECT s.id, s.user_id, s.store_id, s.created_at, s.secret_name, t.name AS topic_name
             FROM secrets s
             JOIN secret_topics st ON s.id = st.secret_id
+            JOIN topics t ON st.topic_id = t.id
             WHERE st.topic_id = %s
             ORDER BY s.created_at DESC
             LIMIT %s OFFSET %s;
         """, (topic_id, page_size, (page - 1) * page_size))
         secrets = cursor.fetchall()
 
-    return SecretsResponse(
+    topic_name = secrets[0][5] if secrets else None  
+    return SecretsResponseWithTopic(
         total_count=total_secrets_for_topic,
         secrets=[
             SecretItem(
@@ -324,7 +332,8 @@ async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10
                 created_at=secret[3].isoformat(),
                 secret_name=secret[4]
             ) for secret in secrets
-        ]
+        ],
+        topic_name=topic_name  # Include the topic name in the response
     )
 
 @app.get("/api/secret/retrieve/{store_id}", response_model=SecretRetrieveResponse)
