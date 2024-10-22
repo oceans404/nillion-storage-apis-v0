@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 CREATE_USERS_TABLE = (
-    "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, nillion_user_id TEXT NOT NULL);"
+    "CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, nillion_user_id TEXT UNIQUE NOT NULL);"
 )
 
 CREATE_TOPICS_TABLE = (
@@ -15,11 +15,11 @@ CREATE_TOPICS_TABLE = (
 CREATE_SECRETS_TABLE = (
     """CREATE TABLE IF NOT EXISTS secrets (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL,
+        nillion_user_id TEXT NOT NULL,
         store_id TEXT NOT NULL,
         secret_name TEXT NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        FOREIGN KEY(nillion_user_id) REFERENCES users(nillion_user_id) ON DELETE CASCADE
     );"""
 )
 

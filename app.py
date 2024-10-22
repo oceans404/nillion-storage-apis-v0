@@ -93,7 +93,7 @@ class SecretCreate(BaseModel):
 
 class SecretItem(BaseModel):
     id: int
-    user_id: str  
+    nillion_user_id: str  
     store_id: str
     created_at: str 
     secret_name: str
@@ -110,7 +110,7 @@ class SecretResponse(BaseModel):
 
 class SecretItem(BaseModel):
     id: int
-    user_id: str 
+    nillion_user_id: str 
     store_id: str
     created_at: str
     secret_name: str
@@ -247,14 +247,10 @@ async def create_secret(secret: SecretCreate, connection=Depends(get_db_connecti
         
         if user is None:
             cursor.execute("INSERT INTO users (nillion_user_id) VALUES (%s) RETURNING id;", (nillion_user_id,))
-            user_id = cursor.fetchone()[0]
-        else:
-            user_id = user[0]
 
-        cursor.execute("INSERT INTO secrets (user_id, store_id, secret_name) VALUES (%s, %s, %s) RETURNING id;", (user_id, store_id, secret.secret_name))
+        cursor.execute("INSERT INTO secrets (nillion_user_id, store_id, secret_name) VALUES (%s, %s, %s) RETURNING id;", (nillion_user_id, store_id, secret.secret_name))
         secret_id = cursor.fetchone()[0]
         
-        # Increment total_records in secret_count table
         cursor.execute("UPDATE secret_count SET total_records = total_records + 1;")
         
         for topic_id in secret.topics:
@@ -281,7 +277,7 @@ async def get_total_users(connection=Depends(get_db_connection)):
 @app.get("/api/users/with_secrets/count", response_model=TotalUsersWithSecretsResponse)
 async def get_users_with_secrets_count(connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
-        cursor.execute("SELECT COUNT(DISTINCT user_id) FROM secrets;")
+        cursor.execute("SELECT COUNT(DISTINCT nillion_user_id) FROM secrets;")
         total_users_with_secrets = cursor.fetchone()[0]
     return TotalUsersWithSecretsResponse(total_users_with_secrets=total_users_with_secrets)
 
@@ -292,7 +288,7 @@ async def get_secrets(page: int = 1, page_size: int = 10, connection=Depends(get
 
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT id, user_id, store_id, created_at, secret_name
+            SELECT id, nillion_user_id, store_id, created_at, secret_name
             FROM secrets 
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s;
@@ -301,7 +297,7 @@ async def get_secrets(page: int = 1, page_size: int = 10, connection=Depends(get
 
     return SecretsResponse(
         total_count=total_count,
-        secrets=[SecretItem(id=secret[0], user_id=str(secret[1]), store_id=secret[2], created_at=secret[3].isoformat(), secret_name=secret[4]) for secret in secrets]
+        secrets=[SecretItem(id=secret[0], nillion_user_id=str(secret[1]), store_id=secret[2], created_at=secret[3].isoformat(), secret_name=secret[4]) for secret in secrets]
     )
 
 @app.get("/api/secrets/topic/{topic_id}", response_model=SecretsResponseWithTopic)
@@ -311,7 +307,7 @@ async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10
 
     with connection.cursor() as cursor:
         cursor.execute("""
-            SELECT s.id, s.user_id, s.store_id, s.created_at, s.secret_name, t.name AS topic_name
+            SELECT s.id, s.nillion_user_id, s.store_id, s.created_at, s.secret_name, t.name AS topic_name
             FROM secrets s
             JOIN secret_topics st ON s.id = st.secret_id
             JOIN topics t ON st.topic_id = t.id
@@ -327,7 +323,7 @@ async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10
         secrets=[
             SecretItem(
                 id=secret[0],
-                user_id=str(secret[1]), 
+                nillion_user_id=str(secret[1]), 
                 store_id=secret[2],
                 created_at=secret[3].isoformat(),
                 secret_name=secret[4]
@@ -338,10 +334,6 @@ async def get_secrets_by_topic(topic_id: int, page: int = 1, page_size: int = 10
 
 @app.get("/api/secret/retrieve/{store_id}", response_model=SecretRetrieveResponse)
 async def get_secret_by_store_id(store_id: str, secret_name: str = default_secret_name, redis_client=Depends(get_redis_client)):
-    seed = PUBLIC_USER_SEED
-    userkey = UserKey.from_seed(seed)
-    nodekey = NodeKey.from_seed(str(uuid.uuid4()))
-    client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
 
     redis_key = f"secret:{store_id}:{secret_name}"
     cached_secret = redis_client.get(redis_key)
@@ -350,8 +342,12 @@ async def get_secret_by_store_id(store_id: str, secret_name: str = default_secre
         secret_data = json.loads(cached_secret)
         return SecretRetrieveResponse(store_id=store_id, secret=secret_data)
 
-    memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
     try:
+        seed = PUBLIC_USER_SEED
+        userkey = UserKey.from_seed(seed)
+        nodekey = NodeKey.from_seed(str(uuid.uuid4()))
+        client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
+        memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
         receipt_retrieve = await get_quote_and_pay(
             client,
             nillion.Operation.retrieve_value(),
