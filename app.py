@@ -48,9 +48,19 @@ payments_wallet = LocalWallet(
 
 app = FastAPI()
 
+# environment variable for frontend url
+allowed_origin = os.getenv("ALLOWED_ORIGIN")
+origins = [
+    "http://localhost:3000",
+    "http://localhost:3001"
+]
+
+if allowed_origin:
+    origins.append(allowed_origin)  # Add the environment variable if it exists
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
