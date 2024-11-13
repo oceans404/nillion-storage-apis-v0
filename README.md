@@ -70,7 +70,7 @@ FastAPI implementation of APIs for managing secrets for the Confessions App, int
 To start the application in development mode, run:
 
 ```bash
-uvicorn main:app --reload
+uvicorn app:app --reload
 ```
 
 This will start the FastAPI development server and allow you to access the API endpoints at http://127.0.0.1:8000/
@@ -78,7 +78,7 @@ This will start the FastAPI development server and allow you to access the API e
 For production deployment, use a production ASGI server like Gunicorn with Uvicorn workers:
 
 ```bash
-gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker
+uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
 ## API Documentation
