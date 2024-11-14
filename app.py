@@ -26,7 +26,7 @@ nillion_testnet_default_config = {
 }
 
 default_secret_name = "my_secret"
-default_user_seed = "user_123"
+default_nillion_user_seed = "user_123"
 
 # Create payments config, client and wallet
 payments_config = create_payments_config(nillion_testnet_default_config["chain_id"], nillion_testnet_default_config["grpc_endpoint"])
@@ -65,10 +65,10 @@ def get_db_connection():
 
 # Pydantic models
 class UserCreate(BaseModel):
-    nillion_seed: str = default_user_seed
+    nillion_seed: str = default_nillion_user_seed
 
 class SecretCreate(BaseModel):
-    nillion_seed: str = default_user_seed
+    nillion_seed: str = default_nillion_user_seed
     secret_value: Union[str, int] = "hello, world"
     secret_name: Optional[str] = default_secret_name
 
@@ -268,9 +268,9 @@ async def get_secret_store_ids_for_app(app_id: str, page: int = 1, page_size: in
     )
 
 @app.get("/api/secret/retrieve/{store_id}", response_model=SecretRetrieveResponse)
-async def retrieve_secret_by_store_id(store_id: str, retrieve_as_user_seed: str = default_user_seed,secret_name: str = default_secret_name):
+async def retrieve_secret_by_store_id(store_id: str, retrieve_as_nillion_user_seed: str = default_nillion_user_seed,secret_name: str = default_secret_name):
     try:
-        userkey = UserKey.from_seed(retrieve_as_user_seed)
+        userkey = UserKey.from_seed(retrieve_as_nillion_user_seed)
         nodekey = NodeKey.from_seed(str(uuid.uuid4()))
         client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
         memo_retrieve_value = f"petnet operation: retrieve_value; name: {secret_name}; store_id: {store_id}"
@@ -292,7 +292,10 @@ async def retrieve_secret_by_store_id(store_id: str, retrieve_as_user_seed: str 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve secret with name: {secret_name}. Error: {str(e)}")
 
-    retrieved_secret = result[1].value.decode('utf-8')
+    if isinstance(result[1].value, (bytes, bytearray)):
+        retrieved_secret = result[1].value.decode('utf-8')
+    else:
+        retrieved_secret = result[1].value
     
     return SecretRetrieveResponse(store_id=store_id, secret=retrieved_secret)
 
