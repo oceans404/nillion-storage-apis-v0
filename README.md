@@ -1,27 +1,67 @@
-# Blind Confessions App FastAPI APIs
+# Nillion Storage APIs
 
 ## Description
 
-FastAPI implementation of APIs for managing secrets for the Confessions App, integrating with Nillion for secure secret storage.
+FastAPI implementation of APIs for
+
+- Creating applications (app id)
+- Managing Nillion secrets for an app
+- Retrieving Nillion Store IDs for an app
+- Retrieving Nillion secret values by Store ID.
 
 ## API Endpoints
 
-### POST Endpoints
+## Endpoints
 
-- **`/api/user`**: Creates a new user with a Nillion seed. Returns the newly created user's ID.
-- **`/api/topic`**: Creates a new topic with a specified name. Returns the ID of the newly created topic.
-- **`/api/secret`**: Creates a new secret associated with a user. Requires a Nillion seed and the secret value. Returns the secret ID and store ID.
+### Register a New App ID
 
-### GET Endpoints
+- **Method:** `POST`
+- **Path:** `/api/apps/register`
+- **Description:** Registers a new application and creates a table that will hold the app's store IDs.
 
-- **`/api/users`**: Retrieves a list of all users, including their IDs and Nillion user IDs.
-- **`/api/topics`**: Retrieves a list of all topics, including their IDs and names.
-- **`/api/users/count`**: Returns the total number of users in the database.
-- **`/api/users/with_secrets/count`**: Returns the count of users who have stored secrets.
-- **`/api/secrets`**: Retrieves a paginated list of secrets, including their IDs, user IDs, store IDs, and creation timestamps.
-- **`/api/secrets/topic/{topic_id}`**: Retrieves a paginated list of secrets associated with a specific topic ID.
-- **`/api/secret/retrieve/{store_id}`**: Retrieves a secret by its store ID. Returns the store ID and the secret value.
-- **`/api/wallet`**: Retrieves the wallet address currently funding the API calls.
+### Create App Secret
+
+- **Method:** `POST`
+- **Path:** `/api/apps/{app_id}/secrets`
+- **Description:** Creates a new secret for a specified app ID. Stores the resulting Store ID in the app's table.
+
+### Get Store IDs for App
+
+- **Method:** `GET`
+- **Path:** `/api/apps/{app_id}/store_ids`
+- **Description:** Retrieves all store IDs associated with a specified app ID, with pagination support.
+
+### Retrieve Secret by Store ID
+
+- **Method:** `GET`
+- **Path:** `/api/secret/retrieve/{store_id}`
+- **Description:** Retrieves a secret using its store ID.
+
+### Get Wallet Info
+
+- **Method:** `GET`
+- **Path:** `/api/wallet`
+- **Description:** Retrieves the Nillion address of the private key used by the app for reference in case it runs out of funds
+
+### Create User
+
+- **Method:** `POST`
+- **Path:** `/api/user`
+- **Description:** Creates a new user based on the provided Nillion seed. Helpful for checking what the user's Nillion User ID is for a given user seed.
+
+### Get Users
+
+- **Method:** `GET`
+- **Path:** `/api/users`
+- **Description:** Retrieves a list of all user ids.
+
+## Error Handling
+
+All endpoints return appropriate HTTP status codes and error messages in case of failure. Common status codes include:
+
+- `400 Bad Request`: Invalid input.
+- `404 Not Found`: Resource not found.
+- `500 Internal Server Error`: Unexpected server error.
 
 ## Getting Started
 
@@ -29,7 +69,6 @@ FastAPI implementation of APIs for managing secrets for the Confessions App, int
 
 - Python 3.11+
 - PostgreSQL
-- Redis
 
 ### Installation
 
@@ -62,8 +101,7 @@ FastAPI implementation of APIs for managing secrets for the Confessions App, int
 5. Edit the `.env` file and add your own environment variables:
 
 - `POSTGRESQL_URL`: URL for your PostgreSQL database
-- `REDIS_URL`: URL for your Redis instance
-- `NILLION_PRIVATE_KEY`: Your Nillion private key
+- `NILLION_PRIVATE_KEY`: Your Nillion private key. This will be used to pay for any operations on the Nillion Testnet.
 
 ### Running the App
 

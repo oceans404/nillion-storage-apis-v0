@@ -1,9 +1,3 @@
-# Flask[async]
-# python-dotenv
-# redis
-# psycopg2-binary
-# Gunicorn
-
 py-nillion-client
 nillion-python-helpers
 cosmpy
