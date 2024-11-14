@@ -1,127 +1,164 @@
 # Nillion Storage APIs
 
-## Description
+## Overview
 
-FastAPI implementation of APIs for
+These API wrappers provides an interface for storing and retrieving secrets while maintaining a persistent record of store IDs (secret locations on the Nillion network) through PostgreSQL. Only Store IDs and metadata are stored in the database -- secrets are stored on the Nillion Network Testnet. Check out [Quickstart.md](Quickstart.md) for a step-by-step usage guide.
 
-- Creating applications (app id)
-- Managing Nillion secrets for an app
-- Retrieving Nillion Store IDs for an app
-- Retrieving Nillion secret values by Store ID.
+Note: A Testnet wallet is used to fund Nillion operations for these Storage APIs, allowing users to interact with the APIs without needing to manage payments directly.
+
+### System Flow
+
+```mermaid
+flowchart LR
+    subgraph "Client Applications"
+        C1[App ID: b4c2a1]
+        C2[App ID: e9f3d5]
+    end
+
+    subgraph "APIs"
+        API[Register App, Store Secret, Retrieve Secret, List Store IDs]
+    end
+
+    subgraph "PostgreSQL"
+        PG1[(Store IDs for app id: b4c2a1)]
+        PG2[(Store IDs for app id: e9f3d5)]
+    end
+
+    subgraph "Nillion Network"
+        N1[Secret at store id: abc123]
+        N2[Secret at store id: def456]
+        N3[Secret at store id: ghi789]
+    end
+
+    C1 --> API
+    C2 --> API
+    API -->|by app_id| PostgreSQL
+    API -->|by store_id| N1
+    API -->|by store_id| N2
+    API -->|by store_id| N3
+```
+
+## Features
+
+- **Application Management**: Create and manage multiple apps
+- **Store ID Tracking**: Maintain a database of all Store IDs with metadata like creation date and TTL
+- **Secret Management**: Store and retrieve permissioned secrets on the Nillion Network Testnet
+- **User Management**: Create Nillion User IDs from a user seed
+- **Automatic TTL**: Secrets have a TTL and expire after 30 days (configurable)
+
+## Architecture
+
+- **FastAPI Backend**: High-performance async API framework
+- **PostgreSQL**: Stores application metadata and Store IDs
+- **Nillion Network**: Secure secret storage and computation platform
 
 ## API Endpoints
 
-## Endpoints
+### Application Management
 
-### Register a New App ID
+- `POST /api/apps/register` - Create a new application
+- `GET /api/apps` - List all registered applications
 
-- **Method:** `POST`
-- **Path:** `/api/apps/register`
-- **Description:** Registers a new application and creates a table that will hold the app's store IDs.
+### Secret Management
 
-### Create App Secret
+- `POST /api/apps/{app_id}/secrets` - Store a new secret
+- `GET /api/apps/{app_id}/store_ids` - List Store IDs for an application
+- `GET /api/secret/retrieve/{store_id}` - Retrieve a secret by Store ID
 
-- **Method:** `POST`
-- **Path:** `/api/apps/{app_id}/secrets`
-- **Description:** Creates a new secret for a specified app ID. Stores the resulting Store ID in the app's table.
+### User Management
 
-### Get Store IDs for App
+- `POST /api/user` - Create a new user identity
+- `GET /api/users` - List all registered users
 
-- **Method:** `GET`
-- **Path:** `/api/apps/{app_id}/store_ids`
-- **Description:** Retrieves all store IDs associated with a specified app ID, with pagination support.
+### Wallet Management
 
-### Retrieve Secret by Store ID
+- `GET /api/wallet` - Get Nillion wallet address
 
-- **Method:** `GET`
-- **Path:** `/api/secret/retrieve/{store_id}`
-- **Description:** Retrieves a secret using its store ID.
-
-### Get Wallet Info
-
-- **Method:** `GET`
-- **Path:** `/api/wallet`
-- **Description:** Retrieves the Nillion address of the private key used by the app for reference in case it runs out of funds
-
-### Create User
-
-- **Method:** `POST`
-- **Path:** `/api/user`
-- **Description:** Creates a new user based on the provided Nillion seed. Helpful for checking what the user's Nillion User ID is for a given user seed.
-
-### Get Users
-
-- **Method:** `GET`
-- **Path:** `/api/users`
-- **Description:** Retrieves a list of all user ids.
-
-## Error Handling
-
-All endpoints return appropriate HTTP status codes and error messages in case of failure. Common status codes include:
-
-- `400 Bad Request`: Invalid input.
-- `404 Not Found`: Resource not found.
-- `500 Internal Server Error`: Unexpected server error.
-
-## Getting Started
+## Setup & Installation
 
 ### Prerequisites
 
 - Python 3.11+
 - PostgreSQL
+- Nillion Network Account with funded wallet
 
-### Installation
+### Environment Setup
 
-1. Clone the repository:
+1. Clone the repository
 
-   ```bash
-   git clone <repository-url>
-   cd <repository-directory>
-   ```
+2. Create and activate virtual environment:
 
-2. Create a virtual environment and activate it:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+```
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
-   ```
+3. Install dependencies:
 
-3. Install the required packages:
+```bash
+pip install -r requirements.txt
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+4. Configure environment variables:
 
-4. Copy the `.env.example` file to create your own `.env` file:
+```bash
+cp .env.example .env
+```
 
-   ```bash
-   cp .env.example .env
-   ```
+Required environment variables:
 
-5. Edit the `.env` file and add your own environment variables:
+```
+POSTGRESQL_URL=postgresql://user:password@localhost:5432/dbname
+NILLION_PRIVATE_KEY=your_funded_nillion_testnet_private_key
+```
 
-- `POSTGRESQL_URL`: URL for your PostgreSQL database
-- `NILLION_PRIVATE_KEY`: Your Nillion private key. This will be used to pay for any operations on the Nillion Testnet.
+### Database Initialization
 
-### Running the App
+Use `python3 create_tables.py` to create the necessary tables (apps and users).
 
-To start the application in development mode, run:
+### Running the Service
+
+Development mode:
 
 ```bash
 uvicorn app:app --reload
 ```
 
-This will start the FastAPI development server and allow you to access the API endpoints at http://127.0.0.1:8000/
-
-For production deployment, use a production ASGI server like Gunicorn with Uvicorn workers:
+Production mode:
 
 ```bash
 uvicorn app:app --host 0.0.0.0 --port $PORT
 ```
 
-## API Documentation
+## Considerations
 
-FastAPI provides automatic interactive API documentation. Once the server is running, you can access interfaces and test all API endpoints directly from your browser:
+- Make sure your Nillion private key remains private and the corresponding wallet has sufficient funds: https://faucet.testnet.nillion.com/
+- Review and set user permissions (by user id) when storing secrets
+- Monitor TTL expirations for critical secrets
 
-- Swagger UI: http://127.0.0.1:8000/docs
-- ReDoc: http://127.0.0.1:8000/redoc
+## Documentation
+
+Interactive API documentation with complete request/response schemas is available at:
+
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+## Error Handling
+
+The API uses standard HTTP status codes:
+
+- `400`: Invalid request parameters
+- `404`: Resource not found
+- `500`: Internal server error
+
+All error responses include a detail message explaining the issue.
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## License: MIT

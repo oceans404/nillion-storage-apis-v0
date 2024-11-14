@@ -43,7 +43,8 @@ payments_wallet = LocalWallet(
     prefix="nillion",
 )
 
-app = FastAPI()
+app = FastAPI(title="Nillion Storage APIs")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -81,7 +82,6 @@ class StoreIdItem(BaseModel):
     ttl_expires_at: str
 
 class UserResponse(BaseModel):
-    id: int
     nillion_user_id: str
 
 class CreateAppSecretResponse(BaseModel):
@@ -145,7 +145,7 @@ async def register_new_app_id(connection=Depends(get_db_connection)):
         print(f"Error during registration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/apps", response_model=List[AppResponse])
+@app.get("/api/apps", response_model=List[AppResponse], include_in_schema=False)
 async def get_all_apps(connection=Depends(get_db_connection)):
     try:
         with connection.cursor() as cursor:
@@ -234,7 +234,7 @@ async def create_app_secret(app_id: str, secret: SecretCreate, permissions: User
     return CreateAppSecretResponse(store_id=store_id)
 
 @app.get("/api/apps/{app_id}/store_ids", response_model=GetStoreIdsResponse)
-async def get_secret_store_ids_for_app(app_id: str, page: int = 1, page_size: int = 10, connection=Depends(get_db_connection)):
+async def get_secret_store_ids_for_app_id(app_id: str, page: int = 1, page_size: int = 10, connection=Depends(get_db_connection)):
     # Make sure the app exists
     table_name = f"store_ids_{app_id}"
     with connection.cursor() as cursor:
@@ -305,7 +305,7 @@ def get_wallet_info():
     return WalletInfoResponse(nillion_address=str(wallet_address))
 
 @app.post("/api/user", response_model=UserResponse)
-async def create_user(user: UserCreate, connection=Depends(get_db_connection)):
+async def get_nillion_user_id_by_seed(user: UserCreate, connection=Depends(get_db_connection)):
     userkey = UserKey.from_seed(user.nillion_seed)
     nodekey = NodeKey.from_seed(str(uuid.uuid4()))
     client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
@@ -322,9 +322,9 @@ async def create_user(user: UserCreate, connection=Depends(get_db_connection)):
             user_id = existing_user[0]
 
     connection.commit()
-    return UserResponse(id=user_id, nillion_user_id=nillion_user_id)
+    return UserResponse(nillion_user_id=nillion_user_id)
 
-@app.get("/api/users", response_model=UserListResponse)
+@app.get("/api/users", response_model=UserListResponse, include_in_schema=False)
 async def get_users(connection=Depends(get_db_connection)):
     with connection.cursor() as cursor:
         cursor.execute("SELECT id, nillion_user_id FROM users;")
