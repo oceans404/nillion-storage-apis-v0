@@ -45,7 +45,7 @@ Open your browser console and run this snippet (replace `your_app_id` with the a
 
 ```javascript
 // run `curl -X POST https://nillion-storage-apis-v0.onrender.com/api/apps/register` to get your app_id
-const APP_ID = 'REPLACE_WITH_YOUR_APP_ID';
+const APP_ID = 'INSERT_YOUR_APP_ID_HERE';
 const USER_SEED = 'user_123'; // your seed generates a deterministic nillion user id - check it in step 1
 const API_BASE = 'https://nillion-storage-apis-v0.onrender.com';
 
@@ -106,22 +106,22 @@ async function runQuickstart() {
 
     // 4. List store IDs
     console.log('\nListing store IDs...');
-    const storeIds = await fetch(
-      `${API_BASE}/api/apps/${APP_ID}/store_ids`
-    ).then((res) => res.json());
+    const storeIds = await fetch(`${API_BASE}/api/apps/${APP_ID}/store_ids`)
+      .then((res) => res.json())
+      .then((data) => data.store_ids);
     console.log('Store IDs:', storeIds);
 
-    // 5. Retrieve both secrets
+    // 5. Retrieve both secrets using the store IDs we just created
     console.log('\nRetrieving secrets...');
     const secret1 = await fetch(
-      `${API_BASE}/api/secret/retrieve/${storeResult1.store_id}?retrieve_as_nillion_user_seed=${USER_SEED}&secret_name=my_secret_number`
+      `${API_BASE}/api/secret/retrieve/${storeIds[0].store_id}?retrieve_as_nillion_user_seed=${USER_SEED}&secret_name=${storeIds[0].secret_name}`
     ).then((res) => res.json());
-    console.log('Number secret retrieved:', secret1);
+    console.log('First secret retrieved:', secret1);
 
     const secret2 = await fetch(
-      `${API_BASE}/api/secret/retrieve/${storeResult2.store_id}?retrieve_as_nillion_user_seed=${USER_SEED}&secret_name=my_secret_blob`
+      `${API_BASE}/api/secret/retrieve/${storeIds[1].store_id}?retrieve_as_nillion_user_seed=${USER_SEED}&secret_name=${storeIds[1].secret_name}`
     ).then((res) => res.json());
-    console.log('Blob secret retrieved:', secret2);
+    console.log('Second secret retrieved:', secret2);
   } catch (error) {
     console.error('Error in flow:', error);
   }
