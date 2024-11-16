@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import py_nillion_client as nillion
@@ -12,6 +12,9 @@ from cosmpy.crypto.keypairs import PrivateKey
 import uuid  
 from typing import Dict, List, Optional, Set, Union
 from psycopg2 import pool
+import time
+from collections import defaultdict
+import threading
 
 load_dotenv()
 
@@ -42,8 +45,48 @@ payments_wallet = LocalWallet(
     private_key,
     prefix="nillion",
 )
+class RateLimiter:
+    def __init__(self):
+        self.requests_per_minute = 60
+        self.window_size = 60  # seconds
+        self.request_counts = defaultdict(list)
+        self.lock = threading.Lock()
+
+    def is_rate_limited(self, client_ip: str) -> bool:
+        current_time = time.time()
+        
+        with self.lock:
+            # Clean old requests
+            self.request_counts[client_ip] = [
+                req_time for req_time in self.request_counts[client_ip]
+                if current_time - req_time < self.window_size
+            ]
+            
+            if len(self.request_counts[client_ip]) >= self.requests_per_minute:
+                return True
+                
+            self.request_counts[client_ip].append(current_time)
+            return False
+
+# Create a single instance of RateLimiter
+rate_limiter = RateLimiter()
+
+# Your existing Nillion config...
 
 app = FastAPI(title="Nillion Storage APIs")
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host
+    
+    if rate_limiter.is_rate_limited(client_ip):
+        return Response(
+            content="Rate limit exceeded. Please try again later.",
+            status_code=429
+        )
+    
+    response = await call_next(request)
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,6 +95,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Optional: Add endpoint to check rate limit status
+@app.get("/rate-limit-status")
+async def check_rate_limit(request: Request):
+    client_ip = request.client.host
+    current_time = time.time()
+    
+    recent_requests = len([
+        req_time for req_time in rate_limiter.request_counts[client_ip]
+        if current_time - req_time < rate_limiter.window_size
+    ])
+    
+    return {
+        "remaining_requests": rate_limiter.requests_per_minute - recent_requests,
+        "total_limit": rate_limiter.requests_per_minute,
+        "window_size_seconds": rate_limiter.window_size
+    }
 
 # Create a connection pool
 db_pool = pool.SimpleConnectionPool(1, 20, dsn=os.getenv("POSTGRESQL_URL"))
