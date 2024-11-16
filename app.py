@@ -391,6 +391,94 @@ async def get_users(connection=Depends(get_db_connection)):
         users = cursor.fetchall()
     return UserListResponse(users=[UserListItem(id=user[0], nillion_user_id=user[1]) for user in users])
 
+@app.put("/api/apps/{app_id}/secrets/{store_id}", response_model=SecretRetrieveResponse)
+async def update_secret(app_id: str, store_id: str, secret: SecretCreate, connection=Depends(get_db_connection)):
+    table_name = f"store_ids_{app_id}"
+    
+    # Check if the table exists
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT to_regclass('{table_name}');
+        """)
+        table_exists = cursor.fetchone()[0] is not None
+        if not table_exists:
+            raise HTTPException(status_code=404, detail=f"App id '{app_id}' does not exist.")
+
+    # Check if the store_id exists in the table
+    with connection.cursor() as cursor:
+        cursor.execute(f"""
+            SELECT id FROM "{table_name}" WHERE store_id = %s;
+        """, (store_id,))
+        existing_secret = cursor.fetchone()
+        if existing_secret is None:
+            raise HTTPException(status_code=404, detail=f"Store id '{store_id}' does not exist in app '{app_id}'.")
+
+    userkey = UserKey.from_seed(secret.nillion_seed)
+    nodekey = NodeKey.from_seed(str(uuid.uuid4()))
+    client = create_nillion_client(userkey, nodekey, nillion_testnet_default_config["bootnodes"])
+
+    # Create new secret value
+    if isinstance(secret.secret_value, str):
+        new_secret = nillion.NadaValues(
+        {
+            secret.secret_name: nillion.SecretBlob(bytearray(secret.secret_value.encode('utf-8')))
+        })
+    elif isinstance(secret.secret_value, int):
+        new_secret = nillion.NadaValues(
+        {
+            secret.secret_name: nillion.SecretInteger(secret.secret_value),
+        })
+    else:
+        raise HTTPException(status_code=400, detail="secret_value must be a string or an integer.")
+
+    # Update the secret in the Nillion client
+    try:
+        receipt_update = await get_quote_and_pay(
+            client,
+            nillion.Operation.store_values(new_secret, ttl_days=ttl_days),
+            payments_wallet,
+            payments_client,
+            nillion_testnet_default_config["cluster_id"],
+            f"petnet operation: update_value; store_id: {store_id}",
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Quote failed for update value: {str(e)}")
+    
+    try:
+        await client.update_values(
+            nillion_testnet_default_config["cluster_id"], store_id, new_secret, receipt_update
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update values in the client: {str(e)}")
+
+
+    # Commit the update in the database
+    with connection.cursor() as cursor:
+        # First, check if the store_id exists
+        cursor.execute(f"""
+            SELECT id FROM "{table_name}" WHERE store_id = %s;
+        """, (store_id,))
+        
+        existing_secret = cursor.fetchone()
+        if existing_secret is None:
+            raise HTTPException(status_code=404, detail=f"Store id '{store_id}' does not exist in app '{app_id}'.")
+
+        # Proceed with the update
+        cursor.execute(f"""
+            UPDATE "{table_name}" 
+            SET secret_name = %s 
+            WHERE store_id = %s;
+        """, (secret.secret_name, store_id))
+
+        # Check if any rows were affected
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail=f"No changes made for store_id '{store_id}'.")
+
+    # Commit the transaction
+    connection.commit()
+    return SecretRetrieveResponse(store_id=store_id, secret=secret.secret_value)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
