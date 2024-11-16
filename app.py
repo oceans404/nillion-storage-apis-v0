@@ -294,7 +294,7 @@ async def create_app_secret(app_id: str, secret: SecretCreate, permissions: User
     return CreateAppSecretResponse(store_id=store_id)
 
 @app.get("/api/apps/{app_id}/store_ids", response_model=GetStoreIdsResponse)
-async def get_secret_store_ids_for_app_id(app_id: str, page: int = 1, page_size: int = 10, connection=Depends(get_db_connection)):
+async def get_secret_store_ids_for_app_id(app_id: str, page: int = 1, page_size: int = 100, connection=Depends(get_db_connection)):
     # Make sure the app exists
     table_name = f"store_ids_{app_id}"
     with connection.cursor() as cursor:
