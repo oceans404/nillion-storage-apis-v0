@@ -47,7 +47,7 @@ payments_wallet = LocalWallet(
 )
 class RateLimiter:
     def __init__(self):
-        self.requests_per_minute = 60
+        self.requests_per_minute = 30
         self.window_size = 60  # seconds
         self.request_counts = defaultdict(list)
         self.lock = threading.Lock()
